@@ -1,0 +1,1843 @@
+
+//=====================================================================================================================================//
+//                              Below Lines Help to use Plugin with Measures                                                           //
+//=====================================================================================================================================//
+
+/*
+[SwapShortcut]
+Measure=Plugin
+Plugin=YourStart
+IniPath=
+[!CommandMeasure SwapShortcut "SwapShortcut 2 3"]
+
+[MeasureReplaceShortcut]
+Measure=Plugin
+Plugin=YourStart
+Type=ReplaceShortcut
+IniPath=
+IconFolder=
+DefaultIconPath=
+[!CommandMeasure MeasureReplaceShortcut "ReplaceShortcut 1"]
+
+[CheckApps]
+Measure=Plugin
+Plugin=YourStart
+TotalApps=84
+Type=CheckApps
+IniPath=
+IconFolder=
+NoMatchAction=
+
+[ChangePath]
+Measure=Plugin
+Plugin=YourStart
+IniPath=
+[!CommandMeasure ChangePath "ChangePath 2"]
+
+[ChangeIcon]
+Measure=Plugin
+Plugin=YourStart
+IniPath=
+[!CommandMeasure ChangeIcon "ChangeIcon 3"]
+
+[ChangeName]
+Measure=Plugin
+Plugin=YourStart
+IniPath=
+[!CommandMeasure ChangeName "ChangeName 2 NewName Here"]
+
+[RemoveShortcut]
+Measure=Plugin
+Plugin=YourStart
+[!CommandMeasure RemoveShortcut "RemoveShortcut 2"]
+
+[AddShortcut]
+Measure=Plugin
+Plugin=YourStart
+IconFolder=
+DefaultIconPath=
+TotalShortcuts=
+WriteStringMeter=1
+IniPath=
+OnCompleteAction=
+[!CommandMeasure AddShortcut "addshortcut 1"]
+
+[AllApps]
+Measure=Plugin
+Plugin=YourStart
+TotalApps=
+IconFolder=
+IniPath=
+OnCompleteAction=
+[!CommandMeasure AllApps "writeapps 1"]
+*/
+
+
+//=====================================================================================================================================//
+//                                             Main  Code Start Here                                                                   //
+//=====================================================================================================================================//
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+using Rainmeter;
+
+namespace YourStart
+{
+    internal class Measure
+    {
+        private Rainmeter.API api;
+        private string iconFolder;
+        private string Type;
+        private string iniPath;
+        private string OnCompleteAction;
+        private string NoMatchAction;
+        private int totalApps;
+        private List<AppInfo> appList;
+        private int TotalShortcut;
+
+        internal Measure()
+        {
+            appList = new List<AppInfo>();
+        }
+
+        internal void Reload(Rainmeter.API api, ref double maxValue)
+        {
+            this.api = api;
+            iconFolder = api.ReadString("IconFolder", "").Trim();
+            iniPath = api.ReadString("IniPath", "").Trim();
+            OnCompleteAction = api.ReadString("OnCompleteAction", "").Trim();
+            NoMatchAction = api.ReadString("NoMatchAction", "").Trim();
+            totalApps = api.ReadInt("TotalApps", 0);
+            TotalShortcut = api.ReadInt("TotalShortcut", 0);
+
+            if (string.IsNullOrEmpty(iconFolder) || string.IsNullOrEmpty(iniPath))
+            {
+                api.Log(
+                    API.LogType.Error,
+                    "YourStart.dll: 'IconFolder', 'JsonPath', and 'IniPath' must be specified."
+                );
+                return;
+            }
+
+            if (!Directory.Exists(iconFolder))
+            {
+                try
+                {
+                    Directory.CreateDirectory(iconFolder);
+                }
+                catch (Exception ex)
+                {
+                    api.Log(
+                        API.LogType.Error,
+                        $"YourStart.dll: Failed to create directory '{iconFolder}': {ex.Message}"
+                    );
+                    return;
+                }
+            }
+
+            // Read and validate the Type parameter
+            Type = api.ReadString("Type", "").Trim();
+            if (string.IsNullOrEmpty(Type))
+            {
+                api.Log(
+                    API.LogType.Warning,
+                    "YourStart.dll: 'Type' is not defined. Default behavior will apply."
+                );
+            }
+
+            // Perform actions based on the Type parameter
+            if (Type.Equals("CheckApps", StringComparison.OrdinalIgnoreCase))
+            {
+                ExecuteCheckApps();
+            }
+            else
+            {
+                api.Log(
+                    API.LogType.Debug,
+                    $"YourStart.dll: No specific actions defined for Type '{Type}'."
+                );
+            }
+        }
+
+        internal void Execute(string args)
+        {
+            if (string.IsNullOrEmpty(args))
+            {
+                LogError("No arguments provided.");
+                return;
+            }
+
+            var arguments = args.Split(' ');
+            if (arguments.Length < 2)
+            {
+                LogError(
+                    "Invalid arguments. Supported commands are WriteApps, CheckApps, AddShortcut, SwapShortcut, RemoveShortcut, ChangePath, ChangeIcon, ChangeName, or ReplaceShortcut."
+                );
+                return;
+            }
+           // var splitArgs = args.Split(' ');
+            var splitArgs = ArgumentParser.ParseArguments(args);
+
+            string command = arguments[0].ToLower();
+
+
+
+            switch (command)
+            {
+                case "writeapps":
+                    ExecuteWriteApps();
+                    break;
+
+                case "addshortcut":
+                    ExecuteAddShortcut();
+                    break;
+
+                case "swapshortcut":
+                    ExecuteSwapShortcut(arguments);
+                    break;
+
+                case "removeshortcut":
+                    ExecuteRemoveShortcut(arguments);
+                    break;
+                case "changeicon":
+                    ChangeIconShortcut(arguments);
+                    break;
+
+                case "changepath":
+                    ExecuteChangePath(arguments);
+                    break;
+                case "changename":
+                    ExecuteChangeName(arguments);
+                    break;
+                case "replaceshortcut":
+                    ExecuteReplaceShortcut(arguments);
+                    break;
+                case "addlink":
+                    if (splitArgs.Length == 4)
+                    {
+                        ExecuteAddLink(splitArgs[1], splitArgs[2], splitArgs[3]);
+                    }
+                    else
+                    {
+                        ExecuteAddLink(splitArgs[1], splitArgs[2], splitArgs[3]);
+                    }
+                    break;
+                case "replacelink":
+                    ExecuteReplaceLink(splitArgs);
+                    break;
+
+
+
+                default:
+                    LogError($"Unknown command '{command}'.");
+                    break;
+            }
+        }
+
+        private void ExecuteChangeName(string[] arguments)
+        {
+            if (arguments.Length >= 3 && int.TryParse(arguments[1], out int index))
+            {
+                // Combine the rest of the arguments as the new name
+                string newName = string.Join(" ", arguments.Skip(2));
+                ChangeName(index, newName);
+            }
+            else
+            {
+                LogError(
+                    "Invalid ChangeName arguments. Expected format: 'ChangeName index new name'."
+                );
+            }
+        }
+
+        private void ExecuteWriteApps()
+        {
+            if (string.IsNullOrEmpty(iniPath))
+            {
+                LogError("IniPath is not defined.");
+                return;
+            }
+
+            UpdateAppList();
+            SaveToIniFile(iniPath);
+        }
+
+        private void ExecuteCheckApps()
+        {
+            AppList();
+
+            if (appList.Count != totalApps)
+            {
+                api.Execute(NoMatchAction);
+            }
+        }
+
+        private void ExecuteAddShortcut()
+        {
+            AddShortcut();
+        }
+
+        private void ExecuteSwapShortcut(string[] arguments)
+        {
+            if (
+                arguments.Length == 3
+                && int.TryParse(arguments[1], out int i1)
+                && int.TryParse(arguments[2], out int i2)
+            )
+            {
+                SwapShortcut(i1, i2);
+            }
+            else
+            {
+                LogError("Invalid SwapShortcut arguments. Expected format: 'SwapShortcut i1 i2'.");
+            }
+        }
+
+        private void ExecuteRemoveShortcut(string[] arguments)
+        {
+            if (arguments.Length == 2 && int.TryParse(arguments[1], out int index))
+            {
+                RemoveShortcut(index);
+            }
+            else
+            {
+                LogError(
+                    "Invalid RemoveShortcut arguments. Expected format: 'RemoveShortcut index'."
+                );
+            }
+        }
+
+        private void ChangeIconShortcut(string[] arguments)
+        {
+            if (arguments.Length == 2 && int.TryParse(arguments[1], out int index))
+            {
+                ChangeIcon(index);
+            }
+            else
+            {
+                LogError("Invalid ChangeIcon arguments. Expected format: 'ChangeShortcut index'.");
+            }
+        }
+
+        private void ExecuteChangePath(string[] arguments)
+        {
+            if (arguments.Length == 2 && int.TryParse(arguments[1], out int shortcutIndex))
+            {
+                ChangePath(shortcutIndex);
+            }
+            else
+            {
+                LogError("Invalid ChangePath arguments. Expected format: 'ChangePath index'.");
+            }
+        }
+
+        private void ExecuteReplaceShortcut(string[] arguments)
+        {
+            if (arguments.Length == 2 && int.TryParse(arguments[1], out int index))
+            {
+                ReplaceShortcut(index);
+            }
+            else
+            {
+                LogError(
+                    "Invalid ReplaceShortcut arguments. Expected format: 'ReplaceShortcut index'."
+                );
+            }
+        }
+
+        private void LogError(string message)
+        {
+            api.Log(API.LogType.Error, $"YourStart.dll: {message}");
+        }
+        private void Log(string message)
+        {
+            api.Log(API.LogType.Notice, $"YourStart.dll: {message}");
+        }
+
+
+        internal double Update()
+        {
+            return appList.Count;
+        }
+        //=====================================================================================================================================//
+        //                                                Function of ReplaceLink                                                                  //
+        //=====================================================================================================================================//
+
+        private void ExecuteReplaceLink(string[] arguments)
+        {
+            if (arguments.Length == 5 && int.TryParse(arguments[1], out int index))
+            {
+                string filePath = arguments[2].Trim();
+                string iconPath = arguments[3].Trim();
+                string shortcutName = arguments[4].Trim();
+
+               // if (!File.Exists(filePath))
+              //  {
+              //      LogError($"File path does not exist: {filePath}");
+             //       return;
+             //   }
+
+                UpdateShortcutMeters(index, filePath, iconPath, shortcutName);
+            }
+            else
+            {
+                LogError("Invalid ReplaceLink arguments. Expected format: 'ReplaceLink| index | filePath | iconPath | shortcutName'.");
+            }
+        }
+
+        private void UpdateShortcutMeters(int index, string filePath, string iconPath, string shortcutName)
+        {
+            if (!File.Exists(iniPath))
+            {
+                LogError("INI file not found.");
+                return;
+            }
+
+            var lines = File.ReadAllLines(iniPath).ToList();
+            string backgroundSection = $"[Shortcut_BackGround_{index}]";
+            string iconSection = $"[Shortcut_Icon_{index}]";
+            string stringSection = $"[Shortcut_String_{index}]";
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i].Equals(backgroundSection, StringComparison.OrdinalIgnoreCase))
+                {
+                    ReplaceMeterValue(lines, i, "LeftMouseDownAction", filePath);
+                }
+                else if (lines[i].Equals(iconSection, StringComparison.OrdinalIgnoreCase))
+                {
+                    ReplaceMeterValue(lines, i, "ImageName", iconPath);
+                }
+                else if (lines[i].Equals(stringSection, StringComparison.OrdinalIgnoreCase))
+                {
+                    ReplaceMeterValue(lines, i, "Text", shortcutName);
+                }
+            }
+
+            // Write changes back to the INI file
+            File.WriteAllLines(iniPath, lines);
+
+            Log($"Shortcut meters replaced for index {index}.");
+        }
+
+        /// <summary>
+        /// Replaces a specific key's value in a section.
+        /// </summary>
+        private void ReplaceMeterValue(List<string> lines, int sectionIndex, string key, string newValue)
+        {
+            for (int i = sectionIndex + 1; i < lines.Count; i++)
+            {
+                if (string.IsNullOrWhiteSpace(lines[i]) || lines[i].StartsWith("["))
+                    break;
+
+                if (lines[i].StartsWith($"{key}=", StringComparison.OrdinalIgnoreCase))
+                {
+                    lines[i] = $"{key}={newValue}";
+                    return;
+                }
+            }
+
+            // If key doesn't exist, append it
+            lines.Insert(sectionIndex + 1, $"{key}={newValue}");
+        }
+
+        //=====================================================================================================================================//
+        //                                                Function of AddLink                                                                  //
+        //=====================================================================================================================================//
+
+        public class ArgumentParser
+        {
+            public static string[] ParseArguments(string input)
+            {
+                // Split the input using '|' as a delimiter, trimming whitespace from each segment
+                return input.Split('|').Select(arg => arg.Trim()).ToArray();
+            }
+        }
+
+
+
+
+
+        private void ExecuteAddLink(string filePath, string name, string iconPath)
+        {
+            // Ensure TotalShortcut is initialized from the INI file
+            InitializeTotalShortcuts();
+
+            // Increment TotalShortcuts
+            TotalShortcut++;
+
+            // Create new shortcut sections
+            string sectionName = $"Shortcut_BackGround_{TotalShortcut}";
+
+            string shortcutBackground = $"[{sectionName}]\n" +
+                                        "Meter=Shape\n" +
+                                        "MeterStyle=All_Apps_BackGround\n" +
+                                        $"LeftMouseDownAction=\"{filePath}\"\n";
+
+            string shortcutIcon = $"[Shortcut_Icon_{TotalShortcut}]\n" +
+                                  "Meter=Image\n" +
+                                  $"ImageName={iconPath}\n" +
+                                  "MeterStyle=All_Apps_Icons\n";
+
+            string shortcutString = $"[Shortcut_String_{TotalShortcut}]\n" +
+                                    "Meter=String\n" +
+                                    $"Text={name}\n" +
+                                    "MeterStyle=All_Apps_Text\n";
+
+            try
+            {
+                // Append new sections to the INI file
+                using (StreamWriter writer = new StreamWriter(iniPath, append: true))
+                {
+                    writer.WriteLine(shortcutBackground);
+                    writer.WriteLine(shortcutIcon);
+                    writer.WriteLine(shortcutString);
+                }
+
+                // Update TotalShortcuts in the INI file
+                UpdateTotalShortcutsInIni();
+
+                api.Log(Rainmeter.API.LogType.Notice, $"Shortcut added: {name} with TotalShortcuts = {TotalShortcut}");
+            }
+            catch (Exception ex)
+            {
+                api.Log(Rainmeter.API.LogType.Error, $"YourStart.dll: Error adding link. Exception: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Initializes TotalShortcuts by reading its value from the INI file.
+        /// </summary>
+        private void InitializeTotalShortcuts()
+        {
+            if (!File.Exists(iniPath))
+            {
+                TotalShortcut = 0; // Default if INI file doesn't exist
+                return;
+            }
+
+            var lines = File.ReadAllLines(iniPath);
+            foreach (var line in lines)
+            {
+                if (line.StartsWith("TotalShortcuts=", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (int.TryParse(line.Substring("TotalShortcuts=".Length), out int value))
+                    {
+                        TotalShortcut = value;
+                    }
+                    return;
+                }
+            }
+
+            // Default if TotalShortcuts key is not found
+            TotalShortcut = 0;
+        }
+
+        /// <summary>
+        /// Updates the TotalShortcuts value in the INI file.
+        /// </summary>
+        private void UpdateTotalShortcutsInIni()
+        {
+            var lines = File.ReadAllLines(iniPath).ToList();
+            bool updated = false;
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i].StartsWith("TotalShortcuts=", StringComparison.OrdinalIgnoreCase))
+                {
+                    lines[i] = $"TotalShortcuts={TotalShortcut}";
+                    updated = true;
+                    break;
+                }
+            }
+
+            if (!updated)
+            {
+                lines.Add($"TotalShortcuts={TotalShortcut}");
+            }
+
+            File.WriteAllLines(iniPath, lines);
+        }
+
+
+
+        private void WriteIni(Dictionary<string, Dictionary<string, string>> iniDict)
+        {
+            using (var writer = new StreamWriter(iniPath))
+            {
+                foreach (var section in iniDict)
+                {
+                    writer.WriteLine($"[{section.Key}]");
+                    foreach (var keyValue in section.Value)
+                    {
+                        writer.WriteLine($"{keyValue.Key}={keyValue.Value}");
+                    }
+                    writer.WriteLine();
+                }
+            }
+        }
+    
+
+
+
+
+
+
+//=====================================================================================================================================//
+//                                                Function of ReplaceShortcut                                                          //
+//=====================================================================================================================================//
+
+private void ReplaceShortcut(int shortcutIndex)
+        {
+            try
+            {
+                string defaultIconPath = api.ReadString("DefaultIconPath", "").Trim();
+                if (string.IsNullOrEmpty(defaultIconPath) || !File.Exists(defaultIconPath))
+                {
+                    api.Log(
+                        API.LogType.Error,
+                        "YourStart.dll: 'DefaultIconPath' must be specified and exist for folder icons."
+                    );
+                    return;
+                }
+
+                using (var fileDialog = new OpenFileDialog())
+                {
+                    fileDialog.Filter = "All Files|*.*";
+                    fileDialog.CheckFileExists = false;
+                    fileDialog.Title = "Select a File or Folder";
+
+                    if (fileDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                    {
+                        string selectedPath = fileDialog.FileName;
+                        bool isFolder = Directory.Exists(selectedPath);
+
+                        if (!isFolder && !File.Exists(selectedPath))
+                        {
+                            api.Log(
+                                API.LogType.Error,
+                                $"YourStart.dll: Selected file or folder does not exist: {selectedPath}"
+                            );
+                            return;
+                        }
+
+                        string name = isFolder
+                            ? new DirectoryInfo(selectedPath).Name
+                            : Path.GetFileNameWithoutExtension(selectedPath);
+                        string shortcutPath = selectedPath;
+                        string iconPath = isFolder
+                            ? defaultIconPath
+                            : Path.Combine(iconFolder, $"{name}_{shortcutPath.GetHashCode()}.ico");
+
+                        // Extract icon for files; use default icon for folders
+                        if (!isFolder && !ExtractIconFromExe(shortcutPath, iconPath))
+                        {
+                            api.Log(
+                                API.LogType.Warning,
+                                $"YourStart.dll: Using default icon for '{shortcutPath}'."
+                            );
+                            iconPath = defaultIconPath;
+                        }
+
+                        // Load existing INI file content
+                        var iniContent = File.ReadAllLines(iniPath).ToList();
+
+                        // Update Shortcut_BackGround section
+                        UpdateIniSection(
+                            iniContent,
+                            $"Shortcut_BackGround_{shortcutIndex}",
+                            "LeftMouseDownAction",
+                            $"\"{shortcutPath}\""
+                        );
+
+                        // Update Shortcut_Icon section
+                        UpdateIniSection(
+                            iniContent,
+                            $"Shortcut_Icon_{shortcutIndex}",
+                            "ImageName",
+                            iconPath
+                        );
+
+                        // Update Shortcut_String section
+                        UpdateIniSection(
+                            iniContent,
+                            $"Shortcut_String_{shortcutIndex}",
+                            "Text",
+                            name
+                        );
+
+                        // Write back updated INI content
+                        File.WriteAllLines(iniPath, iniContent);
+
+                        api.Log(
+                            API.LogType.Notice,
+                            $"YourStart.dll: Shortcut '{name}' updated successfully."
+                        );
+                        api.Execute(OnCompleteAction);
+                    }
+                    else
+                    {
+                        api.Log(
+                            API.LogType.Warning,
+                            "YourStart.dll: Shortcut replacement was cancelled."
+                        );
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                api.Log(
+                    API.LogType.Error,
+                    $"YourStart.dll: An error occurred in ReplaceShortcut - {ex.Message}"
+                );
+            }
+        }
+
+        private void UpdateIniSection(
+            List<string> iniContent,
+            string sectionName,
+            string key,
+            string value
+        )
+        {
+            int sectionIndex = iniContent.FindIndex(line => line.Trim().Equals($"[{sectionName}]"));
+            if (sectionIndex == -1)
+            {
+                api.Log(API.LogType.Error, $"YourStart.dll: Section '{sectionName}' not found.");
+                return;
+            }
+
+            int i = sectionIndex + 1;
+            while (i < iniContent.Count && !iniContent[i].StartsWith("["))
+            {
+                if (iniContent[i].StartsWith(key))
+                {
+                    iniContent[i] = $"{key}={value}";
+                    return;
+                }
+                i++;
+            }
+
+            // If key not found, add it to the section
+            iniContent.Insert(i, $"{key}={value}");
+        }
+
+        //=====================================================================================================================================//
+        //                                                Function of Check Apps List                                                          //
+        //=====================================================================================================================================//
+        private void AppList()
+        {
+            appList.Clear();
+            string[] startMenuPaths =
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu) + "\\Programs",
+                Environment.GetFolderPath(Environment.SpecialFolder.StartMenu) + "\\Programs",
+            };
+
+            var uniqueApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var path in startMenuPaths)
+            {
+                if (Directory.Exists(path))
+                {
+                    foreach (
+                        var shortcut in Directory.GetFiles(
+                            path,
+                            "*.lnk",
+                            SearchOption.AllDirectories
+                        )
+                    )
+                    {
+                        try
+                        {
+                            string exePath = GetShortcutTarget(shortcut);
+
+                            // Validate the target
+                            if (
+                                string.IsNullOrEmpty(exePath)
+                                || !File.Exists(exePath)
+                                || !exePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                            )
+                            {
+                                continue;
+                            }
+
+                            string appName = Path.GetFileNameWithoutExtension(exePath);
+                            string uniqueKey =
+                                $"{appName.ToLowerInvariant()}_{exePath.ToLowerInvariant()}";
+
+                            if (uniqueApps.Contains(uniqueKey))
+                                continue;
+
+                            // Add AppInfo without handling icons
+                            appList.Add(
+                                new AppInfo
+                                {
+                                    Name = appName,
+                                    Path = exePath,
+                                    IconPath = string.Empty, // Leave IconPath empty since icons are skipped
+                                }
+                            );
+
+                            uniqueApps.Add(uniqueKey);
+                        }
+                        catch (Exception ex)
+                        {
+                            api.Log(
+                                API.LogType.Error,
+                                $"YourStart.dll: Error processing shortcut '{shortcut}': {ex.Message}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        //=====================================================================================================================================//
+        //                                                Function to Change Icon                                                              //
+        //=====================================================================================================================================//
+        private void ChangeIcon(int index)
+        {
+            api.Log(
+                API.LogType.Debug,
+                $"YourStart.dll: Attempting to change icon for shortcut {index}"
+            );
+
+            // Open a file dialog to select an image
+            string selectedFile = OpenFileDialog();
+            if (string.IsNullOrEmpty(selectedFile))
+            {
+                api.Log(API.LogType.Warning, "YourStart.dll: No file selected. Operation aborted.");
+                return;
+            }
+
+            api.Log(API.LogType.Debug, $"Selected file: {selectedFile}");
+
+            // Read the INI file content
+            var iniContent = ReadIniFile(iniPath);
+            if (iniContent == null)
+            {
+                api.Log(API.LogType.Error, $"YourStart.dll: Failed to read INI file: {iniPath}");
+                return;
+            }
+
+            // Update the ImageName for the specified shortcut
+            string section = $"Shortcut_Icon_{index}";
+            if (iniContent.ContainsKey(section))
+            {
+                iniContent[section]["ImageName"] = selectedFile;
+                api.Log(
+                    API.LogType.Debug,
+                    $"YourStart.dll: Updated ImageName for {section} to {selectedFile}"
+                );
+
+                // Write back the updated INI file
+                WriteIniFile(iniPath, iniContent);
+
+                // Refresh Rainmeter
+                api.Execute("[!UpdateMeter *][!Redraw]");
+            }
+            else
+            {
+                api.Log(
+                    API.LogType.Error,
+                    $"YourStart.dll: Section {section} not found in INI file."
+                );
+            }
+        }
+
+        private string OpenFileDialog()
+        {
+            string selectedFile = null;
+
+            // Use a Windows Forms OpenFileDialog to select an image
+            try
+            {
+                using (var dialog = new System.Windows.Forms.OpenFileDialog())
+                {
+                    dialog.Filter = "Image Files|*.bmp;*.jpg;*.jpeg;*.png;*.ico";
+                    dialog.Title = "Select an Image File";
+
+                    if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                    {
+                        selectedFile = dialog.FileName;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                api.Log(
+                    API.LogType.Error,
+                    $"YourStart.dll: Error while opening file dialog: {ex.Message}"
+                );
+            }
+
+            return selectedFile;
+        }
+
+        //=====================================================================================================================================//
+        //                                                Function to Change ShortcutName                                                      //
+        //=====================================================================================================================================//
+        private void ChangeName(int index, string newName)
+        {
+            if (string.IsNullOrEmpty(iniPath))
+            {
+                LogError("IniPath is not defined.");
+                return;
+            }
+
+            if (!File.Exists(iniPath))
+            {
+                LogError($"INI file '{iniPath}' not found.");
+                return;
+            }
+
+            // Load the INI file
+            var iniFile = ReadIniFile(iniPath);
+
+            // Section for the Shortcut_String_X
+            string section = $"Shortcut_String_{index}";
+
+            if (!iniFile.ContainsKey(section))
+            {
+                LogError($"Section '{section}' does not exist in the INI file.");
+                return;
+            }
+
+            // Update the "Text" key with the new name
+            if (iniFile[section].ContainsKey("Text"))
+            {
+                iniFile[section]["Text"] = newName;
+
+                // Corrected WriteIniFile call
+                WriteIniFile(iniPath, iniFile);
+
+                // Apply the changes dynamically
+                api.Execute(
+                    $"[!SetOption {section} Text \"{newName}\"][!UpdateMeter {section}][!Redraw]"
+                );
+            }
+            else
+            {
+                LogError($"Key 'Text' does not exist in section '{section}'.");
+            }
+        }
+
+        //=====================================================================================================================================//
+        //                                                Function to Swap Shortcut                                                            //
+        //=====================================================================================================================================//
+
+        private void SwapShortcut(int i1, int i2)
+        {
+            api.Log(
+                API.LogType.Debug,
+                $"YourStart.dll: Attempting to swap shortcuts {i1} and {i2}"
+            );
+
+            // Load the INI content
+            var iniContent = ReadIniFile(iniPath);
+            if (iniContent == null)
+            {
+                api.Log(API.LogType.Error, $"YourStart.dll: Failed to read INI file: {iniPath}");
+                return;
+            }
+
+            api.Log(API.LogType.Debug, "YourStart.dll: INI file loaded successfully.");
+
+            // Validate required sections
+            var requiredSections = new[]
+            {
+                $"Shortcut_BackGround_{i1}",
+                $"Shortcut_Icon_{i1}",
+                $"Shortcut_String_{i1}",
+                $"Shortcut_BackGround_{i2}",
+                $"Shortcut_Icon_{i2}",
+                $"Shortcut_String_{i2}",
+            };
+
+            foreach (var section in requiredSections)
+            {
+                if (!iniContent.ContainsKey(section))
+                {
+                    api.Log(
+                        API.LogType.Error,
+                        $"YourStart.dll: Missing section [{section}] in {iniPath}"
+                    );
+                    return;
+                }
+            }
+
+            api.Log(
+                API.LogType.Debug,
+                "YourStart.dll: All required sections found. Proceeding with swap."
+            );
+
+            // Extract values
+            var bgAction1 = iniContent[$"Shortcut_BackGround_{i1}"]["LeftMouseDownAction"];
+            var bgAction2 = iniContent[$"Shortcut_BackGround_{i2}"]["LeftMouseDownAction"];
+            var icon1 = iniContent[$"Shortcut_Icon_{i1}"]["ImageName"];
+            var icon2 = iniContent[$"Shortcut_Icon_{i2}"]["ImageName"];
+            var text1 = iniContent[$"Shortcut_String_{i1}"]["Text"];
+            var text2 = iniContent[$"Shortcut_String_{i2}"]["Text"];
+
+            // Log extracted values for debugging
+            api.Log(
+                API.LogType.Debug,
+                $"YourStart.dll: bgAction1={bgAction1}, bgAction2={bgAction2}"
+            );
+            api.Log(API.LogType.Debug, $"YourStart.dll: icon1={icon1}, icon2={icon2}");
+            api.Log(API.LogType.Debug, $"YourStart.dll: text1={text1}, text2={text2}");
+
+            // Ensure values are valid
+            if (
+                string.IsNullOrWhiteSpace(bgAction1)
+                || string.IsNullOrWhiteSpace(bgAction2)
+                || string.IsNullOrWhiteSpace(icon1)
+                || string.IsNullOrWhiteSpace(icon2)
+                || string.IsNullOrWhiteSpace(text1)
+                || string.IsNullOrWhiteSpace(text2)
+            )
+            {
+                api.Log(
+                    API.LogType.Error,
+                    "YourStart.dll: One or more required values are invalid or empty."
+                );
+                return;
+            }
+
+            // Swap values in the INI content
+            iniContent[$"Shortcut_BackGround_{i1}"]["LeftMouseDownAction"] = bgAction2;
+            iniContent[$"Shortcut_BackGround_{i2}"]["LeftMouseDownAction"] = bgAction1;
+
+            iniContent[$"Shortcut_Icon_{i1}"]["ImageName"] = icon2;
+            iniContent[$"Shortcut_Icon_{i2}"]["ImageName"] = icon1;
+
+            iniContent[$"Shortcut_String_{i1}"]["Text"] = text2;
+            iniContent[$"Shortcut_String_{i2}"]["Text"] = text1;
+
+            // Update Rainmeter settings dynamically
+            api.Execute(
+                $"[!SetOption Shortcut_BackGround_{i1} LeftMouseDownAction \"\"{bgAction2}\"\"]"
+            );
+            api.Execute(
+                $"[!SetOption Shortcut_BackGround_{i2} LeftMouseDownAction \"\"{bgAction1}\"\"]"
+            );
+
+            api.Execute($"[!SetOption Shortcut_Icon_{i1} ImageName \"{icon2}\"]");
+            api.Execute($"[!SetOption Shortcut_Icon_{i2} ImageName \"{icon1}\"]");
+
+            api.Execute($"[!SetOption Shortcut_String_{i1} Text \"{text2}\"]");
+            api.Execute($"[!SetOption Shortcut_String_{i2} Text \"{text1}\"]");
+
+            api.Execute("[!UpdateMeter *][!Redraw]");
+
+            // Write back to the INI file
+            WriteIniFile(iniPath, iniContent);
+
+            // Redraw Rainmeter
+
+            api.Log(API.LogType.Debug, "YourStart.dll: Swap completed successfully.");
+        }
+
+        private void SwapValues(
+            Dictionary<string, Dictionary<string, string>> iniContent,
+            string section1,
+            string section2,
+            string key
+        )
+        {
+            var temp = iniContent[section1][key];
+            iniContent[section1][key] = iniContent[section2][key];
+            iniContent[section2][key] = temp;
+        }
+
+        private Dictionary<string, Dictionary<string, string>> ParseIni(List<string> iniContent)
+        {
+            var result = new Dictionary<string, Dictionary<string, string>>();
+            string currentSection = null;
+
+            foreach (var line in iniContent)
+            {
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith(";"))
+                    continue;
+
+                var match = Regex.Match(line, @"^\[(.+)\]$");
+                if (match.Success)
+                {
+                    currentSection = match.Groups[1].Value;
+                    result[currentSection] = new Dictionary<string, string>();
+                }
+                else if (currentSection != null)
+                {
+                    var keyValue = line.Split(new[] { '=' }, 2);
+                    if (keyValue.Length == 2)
+                    {
+                        result[currentSection][keyValue[0].Trim()] = keyValue[1].Trim();
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        private void SwapSectionValues(
+            Dictionary<string, Dictionary<string, string>> iniDict,
+            string section1,
+            string section2,
+            string key
+        )
+        {
+            if (iniDict[section1].ContainsKey(key) && iniDict[section2].ContainsKey(key))
+            {
+                var temp = iniDict[section1][key];
+                iniDict[section1][key] = iniDict[section2][key];
+                iniDict[section2][key] = temp;
+            }
+        }
+
+        //=====================================================================================================================================//
+        //                                                Function to Remove Shortcut                                                          //
+        //=====================================================================================================================================//
+
+        private void RemoveShortcut(int index)
+        {
+            api.Log(API.LogType.Debug, $"YourStart.dll: Attempting to remove shortcut {index}");
+
+            // Load the INI content
+            var iniContent = ReadIniFile(iniPath);
+            if (iniContent == null)
+            {
+                api.Log(API.LogType.Error, $"YourStart.dll: Failed to read INI file: {iniPath}");
+                return;
+            }
+            // Get and update the TotalShortcuts variable
+            if (
+                iniContent.ContainsKey("Variables")
+                && iniContent["Variables"].ContainsKey("TotalShortcuts")
+            )
+            {
+                if (int.TryParse(iniContent["Variables"]["TotalShortcuts"], out int totalShortcuts))
+                {
+                    totalShortcuts--; // Decrement the value
+                    iniContent["Variables"]["TotalShortcuts"] = totalShortcuts.ToString();
+                    api.Log(
+                        API.LogType.Debug,
+                        $"YourStart.dll: TotalShortcuts decremented to {totalShortcuts}."
+                    );
+                }
+                else
+                {
+                    api.Log(
+                        API.LogType.Error,
+                        "YourStart.dll: TotalShortcuts value is not a valid integer."
+                    );
+                    return;
+                }
+            }
+            else
+            {
+                api.Log(
+                    API.LogType.Error,
+                    "YourStart.dll: TotalShortcuts variable not found in INI file."
+                );
+                return;
+            }
+
+            // Validate required sections
+            string shortcutPrefix = $"Shortcut_BackGround_{index}";
+            if (!iniContent.ContainsKey(shortcutPrefix))
+            {
+                api.Log(
+                    API.LogType.Error,
+                    $"YourStart.dll: Shortcut index {index} does not exist in the INI file."
+                );
+                return;
+            }
+
+            int lastIndex = iniContent
+                .Keys.Where(k => k.StartsWith("Shortcut_BackGround_"))
+                .Select(k => int.Parse(k.Split('_')[2]))
+                .Max();
+
+            // Collapse values
+            for (int i = index; i < lastIndex; i++)
+            {
+                CopySectionValues(iniContent, i + 1, i);
+            }
+
+            // Remove last shortcut
+            RemoveShortcutSections(iniContent, lastIndex);
+
+            // Write back to the INI file
+            WriteIniFile(iniPath, iniContent);
+
+            // Update Rainmeter
+            api.Execute("[!UpdateMeter *][!Redraw]");
+            api.Log(API.LogType.Debug, "YourStart.dll: Shortcut removal completed successfully.");
+        }
+
+        private void RemoveShortcutSections(
+            Dictionary<string, Dictionary<string, string>> iniContent,
+            int index
+        )
+        {
+            string[] sections = { "BackGround", "Icon", "String" };
+            foreach (var section in sections)
+            {
+                string sectionKey = $"Shortcut_{section}_{index}";
+                iniContent.Remove(sectionKey);
+            }
+        }
+
+        private void CopySectionValues(
+            Dictionary<string, Dictionary<string, string>> iniContent,
+            int fromIndex,
+            int toIndex
+        )
+        {
+            string[] sections = { "BackGround", "Icon", "String" };
+            foreach (var section in sections)
+            {
+                string fromSection = $"Shortcut_{section}_{fromIndex}";
+                string toSection = $"Shortcut_{section}_{toIndex}";
+
+                if (iniContent.ContainsKey(fromSection))
+                {
+                    iniContent[toSection] = new Dictionary<string, string>(iniContent[fromSection]);
+                }
+            }
+        }
+
+        //=====================================================================================================================================//
+        //                                                Function to ChangePath                                                               //
+        //=====================================================================================================================================//
+
+        private void ChangePath(int index)
+        {
+            api.Log(
+                API.LogType.Debug,
+                $"YourStart.dll: Attempting to change path for Shortcut_BackGround_{index}"
+            );
+
+            // Load the INI content
+            var iniContent = ReadIniFile(iniPath);
+            if (iniContent == null)
+            {
+                api.Log(API.LogType.Error, $"YourStart.dll: Failed to read INI file: {iniPath}");
+                return;
+            }
+
+            // Validate the Shortcut_BackGround section exists
+            string shortcutKey = $"Shortcut_BackGround_{index}";
+            if (!iniContent.ContainsKey(shortcutKey))
+            {
+                api.Log(
+                    API.LogType.Error,
+                    $"YourStart.dll: Shortcut_BackGround_{index} does not exist in INI file."
+                );
+                return;
+            }
+
+            // Open a file dialog for the user to select a file
+            string selectedPath = ShowFileDialog();
+            if (string.IsNullOrEmpty(selectedPath))
+            {
+                api.Log(API.LogType.Error, "YourStart.dll: No file was selected.");
+                return;
+            }
+
+            api.Log(API.LogType.Debug, $"YourStart.dll: File selected: {selectedPath}");
+
+            // Update the LeftMouseDownAction in the INI content
+            iniContent[shortcutKey]["LeftMouseDownAction"] = $"\"{selectedPath}\"";
+
+            // Write back to the INI file
+            WriteIniFile(iniPath, iniContent);
+
+            // Refresh Rainmeter
+            api.Execute("[!Refresh]");
+            api.Log(
+                API.LogType.Debug,
+                $"YourStart.dll: LeftMouseDownAction updated for {shortcutKey}."
+            );
+        }
+
+        private string ShowFileDialog()
+        {
+            try
+            {
+                // Use OpenFileDialog to select a file
+                using (var openFileDialog = new System.Windows.Forms.OpenFileDialog())
+                {
+                    openFileDialog.Filter = "All Files (*.*)|*.*";
+                    openFileDialog.Title = "Select a File";
+
+                    if (openFileDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                    {
+                        return openFileDialog.FileName;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                api.Log(
+                    API.LogType.Error,
+                    $"YourStart.dll: Failed to open file dialog: {ex.Message}"
+                );
+            }
+
+            return null;
+        }
+
+        //=====================================================================================================================================//
+        //                                               Read and Write Ini File                                                               //
+        //=====================================================================================================================================//
+
+        private Dictionary<string, Dictionary<string, string>> ReadIniFile(string filePath)
+        {
+            var iniContent = new Dictionary<string, Dictionary<string, string>>(
+                StringComparer.OrdinalIgnoreCase
+            );
+
+            if (!File.Exists(filePath))
+            {
+                api.Log(API.LogType.Error, $"YourStart.dll: INI file not found: {filePath}");
+                return null;
+            }
+
+            string currentSection = null;
+
+            foreach (var line in File.ReadAllLines(filePath))
+            {
+                var trimmedLine = line.Trim();
+
+                if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith(";"))
+                {
+                    // Skip empty lines or comments
+                    continue;
+                }
+
+                if (trimmedLine.StartsWith("[") && trimmedLine.EndsWith("]"))
+                {
+                    // New section
+                    currentSection = trimmedLine.Substring(1, trimmedLine.Length - 2);
+                    if (!iniContent.ContainsKey(currentSection))
+                    {
+                        iniContent[currentSection] = new Dictionary<string, string>(
+                            StringComparer.OrdinalIgnoreCase
+                        );
+                    }
+                }
+                else if (!string.IsNullOrEmpty(currentSection))
+                {
+                    // Key-value pair
+                    var splitIndex = trimmedLine.IndexOf('=');
+                    if (splitIndex > 0)
+                    {
+                        var key = trimmedLine.Substring(0, splitIndex).Trim();
+                        var value = trimmedLine.Substring(splitIndex + 1).Trim();
+                        iniContent[currentSection][key] = value;
+                    }
+                }
+            }
+
+            return iniContent;
+        }
+
+        private void WriteIniFile(
+            string filePath,
+            Dictionary<string, Dictionary<string, string>> iniContent
+        )
+        {
+            try
+            {
+                using (var writer = new StreamWriter(filePath))
+                {
+                    foreach (var section in iniContent)
+                    {
+                        writer.WriteLine($"[{section.Key}]");
+                        foreach (var kvp in section.Value)
+                        {
+                            writer.WriteLine($"{kvp.Key}={kvp.Value}");
+                        }
+                        writer.WriteLine(); // Add a blank line after each section
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                api.Log(
+                    API.LogType.Error,
+                    $"YourStart.dll: Failed to write INI file: {ex.Message}"
+                );
+            }
+        }
+
+        private List<string> GenerateIniContent(
+            Dictionary<string, Dictionary<string, string>> iniDict
+        )
+        {
+            var result = new List<string>();
+
+            foreach (var section in iniDict)
+            {
+                result.Add($"[{section.Key}]");
+                foreach (var kvp in section.Value)
+                {
+                    result.Add($"{kvp.Key}={kvp.Value}");
+                }
+                result.Add(""); // Add a blank line between sections
+            }
+
+            return result;
+        }
+
+        //=====================================================================================================================================//
+        //                                                 Function Of AddShortcut                                                             //
+        //=====================================================================================================================================//
+        private void AddShortcut()
+        {
+            try
+            {
+                string defaultIconPath = api.ReadString("DefaultIconPath", "").Trim();
+                if (string.IsNullOrEmpty(defaultIconPath) || !File.Exists(defaultIconPath))
+                {
+                    api.Log(
+                        API.LogType.Error,
+                        "YourStart.dll: 'DefaultIconPath' must be specified and exist for folder icons."
+                    );
+                    return;
+                }
+
+                using (var fileDialog = new OpenFileDialog())
+                {
+                    fileDialog.Filter = "All Files|*.*";
+                    fileDialog.CheckFileExists = false;
+                    fileDialog.Title = "Select a File or Folder";
+
+                    if (fileDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                    {
+                        string selectedPath = fileDialog.FileName;
+                        bool isFolder = Directory.Exists(selectedPath);
+
+                        if (!isFolder && !File.Exists(selectedPath))
+                        {
+                            api.Log(
+                                API.LogType.Error,
+                                $"YourStart.dll: Selected file or folder does not exist: {selectedPath}"
+                            );
+                            return;
+                        }
+
+                        string name = isFolder
+                            ? new DirectoryInfo(selectedPath).Name
+                            : Path.GetFileNameWithoutExtension(selectedPath);
+                        string shortcutPath = selectedPath; // Use the path directly for files or folders
+                        string iconPath = isFolder
+                            ? defaultIconPath
+                            : Path.Combine(iconFolder, $"{name}_{shortcutPath.GetHashCode()}.ico");
+
+                        // Extract icon for files; use default icon for folders
+                        if (!isFolder && !ExtractIconFromExe(shortcutPath, iconPath))
+                        {
+                            api.Log(
+                                API.LogType.Warning,
+                                $"YourStart.dll: Using default icon for '{shortcutPath}'."
+                            );
+                            iconPath = defaultIconPath;
+                        }
+
+                        int currentTotalShortcuts = api.ReadInt("TotalShortcuts", 0);
+                        int newShortcutIndex = currentTotalShortcuts + 1;
+                        int writeStringMeter = api.ReadInt("WriteStringMeter", 0); // Read WriteStringMeter value
+
+                        using (var iniWriter = new StreamWriter(iniPath, true))
+                        {
+                            iniWriter.WriteLine($"[Shortcut_BackGround_{newShortcutIndex}]");
+                            iniWriter.WriteLine("Meter=Shape");
+                            iniWriter.WriteLine("MeterStyle=All_Apps_BackGround");
+                            iniWriter.WriteLine($"LeftMouseDownAction=[\"{shortcutPath}\"]");
+                            iniWriter.WriteLine();
+
+                            iniWriter.WriteLine($"[Shortcut_Icon_{newShortcutIndex}]");
+                            iniWriter.WriteLine("Meter=Image");
+                            iniWriter.WriteLine($"ImageName={iconPath}");
+                            iniWriter.WriteLine("MeterStyle=All_Apps_Icons");
+                            iniWriter.WriteLine();
+
+                            // Write the string meter section only if WriteStringMeter is not 0
+                            if (writeStringMeter != 0)
+                            {
+                                iniWriter.WriteLine($"[Shortcut_String_{newShortcutIndex}]");
+                                iniWriter.WriteLine("Meter=String");
+                                iniWriter.WriteLine($"Text={name}");
+                                iniWriter.WriteLine("MeterStyle=All_Apps_Text");
+                                iniWriter.WriteLine();
+                            }
+                        }
+
+                        // Update the TotalShortcuts variable
+                        UpdateVariableInIni(iniPath, "TotalShortcuts", newShortcutIndex.ToString());
+                        api.Log(
+                            API.LogType.Notice,
+                            $"YourStart.dll: Shortcut '{name}' (folder: {isFolder}) added successfully."
+                        );
+                        api.Execute(OnCompleteAction);
+                    }
+                    else
+                    {
+                        api.Log(
+                            API.LogType.Warning,
+                            "YourStart.dll: Shortcut addition was cancelled."
+                        );
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                api.Log(
+                    API.LogType.Error,
+                    $"YourStart.dll: An error occurred in AddShortcut - {ex.Message}"
+                );
+            }
+        }
+
+        private void UpdateVariableInIni(string iniPath, string variableName, string variableValue)
+        {
+            var lines = File.ReadAllLines(iniPath);
+            bool variableUpdated = false;
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].StartsWith($"{variableName}="))
+                {
+                    lines[i] = $"{variableName}={variableValue}";
+                    variableUpdated = true;
+                    break;
+                }
+            }
+
+            if (!variableUpdated)
+            {
+                using (var iniWriter = new StreamWriter(iniPath, true))
+                {
+                    iniWriter.WriteLine($"{variableName}={variableValue}");
+                }
+            }
+            else
+            {
+                File.WriteAllLines(iniPath, lines);
+            }
+        }
+
+        //=====================================================================================================================================//
+        //                                                 Function Of WriteAllApps                                                            //
+        //=====================================================================================================================================//
+        private void UpdateAppList()
+        {
+            appList.Clear();
+            string[] startMenuPaths =
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu) + "\\Programs",
+                Environment.GetFolderPath(Environment.SpecialFolder.StartMenu) + "\\Programs",
+            };
+
+            var uniqueApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var path in startMenuPaths)
+            {
+                if (Directory.Exists(path))
+                {
+                    foreach (
+                        var shortcut in Directory.GetFiles(
+                            path,
+                            "*.lnk",
+                            SearchOption.AllDirectories
+                        )
+                    )
+                    {
+                        try
+                        {
+                            string exePath = GetShortcutTarget(shortcut);
+                            if (
+                                !string.IsNullOrEmpty(exePath)
+                                && File.Exists(exePath)
+                                && exePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                            )
+                            {
+                                string appName = Path.GetFileNameWithoutExtension(exePath);
+                                string uniqueKey =
+                                    $"{appName.ToLowerInvariant()}_{exePath.ToLowerInvariant()}";
+
+                                if (uniqueApps.Contains(uniqueKey))
+                                    continue;
+
+                                string appIconPath = Path.Combine(
+                                    iconFolder,
+                                    $"{appName}_{exePath.GetHashCode()}.ico"
+                                );
+                                bool iconExtracted =
+                                    File.Exists(appIconPath)
+                                    || ExtractIconFromExe(exePath, appIconPath);
+
+                                if (iconExtracted)
+                                {
+                                    appList.Add(
+                                        new AppInfo
+                                        {
+                                            Name = appName,
+                                            Path = exePath,
+                                            IconPath = appIconPath,
+                                        }
+                                    );
+                                    uniqueApps.Add(uniqueKey);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            api.Log(
+                                API.LogType.Error,
+                                $"YourStart.dll: Error processing shortcut '{shortcut}': {ex.Message}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        private void SaveToIniFile(string iniPath)
+        {
+            try
+            {
+                var validAppList = appList
+                    .Where(app => File.Exists(app.IconPath))
+                    .OrderBy(app => app.Name)
+                    .ToList();
+
+                var iniEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // Track written entries
+                int totalApps = validAppList.Count;
+
+                using (var iniWriter = new StreamWriter(iniPath))
+                {
+                    // Write [Variables] section
+                    iniWriter.WriteLine("[Variables]");
+                    iniWriter.WriteLine($"AllApps={totalApps}");
+                    iniWriter.WriteLine();
+
+                    char currentGroup = '\0';
+                    foreach (var app in validAppList)
+                    {
+                        char firstChar = char.ToUpper(app.Name[0]);
+                        string groupName = char.IsLetter(firstChar) ? firstChar.ToString() : "#";
+
+                        if (currentGroup != groupName[0])
+                        {
+                            currentGroup = groupName[0];
+
+                            iniWriter.WriteLine($"[AppName_Divider__{groupName}]");
+                            iniWriter.WriteLine("Meter=String");
+                            iniWriter.WriteLine($"Text={groupName}");
+                            iniWriter.WriteLine("MeterStyle=All_Apps_Text");
+                            iniWriter.WriteLine();
+                        }
+
+                        string meterName = app.Name.Replace(" ", "_").Replace(".", "_");
+
+                        if (!iniEntries.Contains(meterName))
+                        {
+                            iniWriter.WriteLine($"[AppName_BackGround_{meterName}]");
+                            iniWriter.WriteLine("Meter=Shape");
+                            iniWriter.WriteLine("MeterStyle=All_Apps_BackGround");
+                            iniWriter.WriteLine($"LeftMouseDownAction=[\"{app.Path}\"]");
+
+                            iniWriter.WriteLine($"[AppName_Icon_{meterName}]");
+                            iniWriter.WriteLine("Meter=Image");
+                            iniWriter.WriteLine($"ImageName={app.IconPath}");
+                            iniWriter.WriteLine("MeterStyle=All_Apps_Icons");
+
+                            iniWriter.WriteLine($"[AppName_String_{meterName}]");
+                            iniWriter.WriteLine("Meter=String");
+                            iniWriter.WriteLine($"Text={app.Name}");
+                            iniWriter.WriteLine("MeterStyle=All_Apps_Text");
+                            iniWriter.WriteLine();
+
+                            iniEntries.Add(meterName); // Mark as written
+                        }
+                    }
+                }
+                api.Execute(OnCompleteAction);
+            }
+            catch (Exception ex)
+            {
+                api.Log(API.LogType.Error, $"YourStart.dll: Error writing INI file: {ex.Message}");
+            }
+        }
+
+        private string GetShortcutTarget(string shortcutPath)
+        {
+            IWshRuntimeLibrary.WshShell shell = new IWshRuntimeLibrary.WshShell();
+            IWshRuntimeLibrary.IWshShortcut shortcut = (IWshRuntimeLibrary.IWshShortcut)
+                shell.CreateShortcut(shortcutPath);
+            return shortcut.TargetPath;
+        }
+
+        private bool ExtractIconFromExe(string filePath, string savePath, int iconIndex = 0)
+        {
+            IntPtr largeIcon = IntPtr.Zero;
+            IntPtr smallIcon = IntPtr.Zero;
+
+            try
+            {
+                // Check if the selected file is an image
+                string extension = Path.GetExtension(filePath).ToLower();
+                if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".bmp" || extension == ".gif")
+                {
+                    // Load the image from the file
+                    using (Image originalImage = Image.FromFile(filePath))
+                    {
+                        // Resize the image to 64x64
+                        using (Bitmap resizedBitmap = new Bitmap(64, 64))
+                        {
+                            using (Graphics graphics = Graphics.FromImage(resizedBitmap))
+                            {
+                                graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                                graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+
+                                graphics.DrawImage(originalImage, new Rectangle(0, 0, 64, 64));
+                            }
+
+                            // Save the resized image to the save path
+                            resizedBitmap.Save(savePath, System.Drawing.Imaging.ImageFormat.Png);
+                        }
+                    }
+
+                    api.Log(API.LogType.Notice, $"YourStart.dll: Image successfully copied and resized to '{savePath}'.");
+                    return true;
+                }
+                else
+                {
+                    // If the file is not an image, assume it is an executable and extract its icon
+                    int iconCount = ExtractIconEx(filePath, iconIndex, out largeIcon, out smallIcon, 1);
+
+                    if (iconCount > 0 && largeIcon != IntPtr.Zero)
+                    {
+                        using (Icon icon = Icon.FromHandle(largeIcon))
+                        {
+                            using (Bitmap originalBitmap = icon.ToBitmap())
+                            {
+                                using (Bitmap resizedBitmap = new Bitmap(64, 64))
+                                {
+                                    using (Graphics graphics = Graphics.FromImage(resizedBitmap))
+                                    {
+                                        graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                                        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                                        graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+
+                                        graphics.DrawImage(originalBitmap, new Rectangle(0, 0, 64, 64));
+                                    }
+
+                                    resizedBitmap.Save(savePath, System.Drawing.Imaging.ImageFormat.Png);
+                                }
+                            }
+                        }
+
+                        api.Log(API.LogType.Notice, $"YourStart.dll: Icon successfully extracted and saved to '{savePath}'.");
+                        return true;
+                    }
+                    else
+                    {
+                        api.Log(API.LogType.Warning, $"YourStart.dll: No icon found in '{filePath}'.");
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                api.Log(API.LogType.Error, $"YourStart.dll: Error processing file '{filePath}': {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                // Cleanup unmanaged icon handles
+                if (largeIcon != IntPtr.Zero)
+                    DestroyIcon(largeIcon);
+                if (smallIcon != IntPtr.Zero)
+                    DestroyIcon(smallIcon);
+            }
+        }
+
+
+        [DllImport("shell32.dll", EntryPoint = "ExtractIconEx", CharSet = CharSet.Auto)]
+        private static extern int ExtractIconEx(
+            string file,
+            int index,
+            out IntPtr largeIcon,
+            out IntPtr smallIcon,
+            int nIcons
+        );
+
+        [DllImport("user32.dll", EntryPoint = "DestroyIcon")]
+        private static extern bool DestroyIcon(IntPtr hIcon);
+
+        internal class AppInfo
+        {
+            public string Name { get; set; }
+            public string Path { get; set; }
+            public string IconPath { get; set; }
+        }
+        //=====================================================================================================================================//
+    }
+
+    public static class Plugin
+    {
+        static IntPtr StringBuffer = IntPtr.Zero;
+
+        [DllExport]
+        public static void Initialize(ref IntPtr data, IntPtr rm)
+        {
+            data = GCHandle.ToIntPtr(GCHandle.Alloc(new Measure()));
+        }
+
+        [DllExport]
+        public static void Finalize(IntPtr data)
+        {
+            GCHandle.FromIntPtr(data).Free();
+
+            if (StringBuffer != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(StringBuffer);
+                StringBuffer = IntPtr.Zero;
+            }
+        }
+
+        [DllExport]
+        public static void Reload(IntPtr data, IntPtr rm, ref double maxValue)
+        {
+            Measure measure = (Measure)GCHandle.FromIntPtr(data).Target;
+            measure.Reload(new API(rm), ref maxValue);
+        }
+
+        [DllExport]
+        public static double Update(IntPtr data)
+        {
+            Measure measure = (Measure)GCHandle.FromIntPtr(data).Target;
+            return measure.Update();
+        }
+
+        [DllExport]
+        public static void ExecuteBang(IntPtr data, [MarshalAs(UnmanagedType.LPWStr)] string args)
+        {
+            Measure measure = (Measure)GCHandle.FromIntPtr(data).Target;
+
+            measure.Execute(args);
+        }
+    }
+}
